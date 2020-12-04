@@ -1,16 +1,12 @@
 import os
 import glob
 import nipype
-from nipype.interfaces.utility import Split
-from core.utils.utils import check_dcm_dose, string_strip
+from core.utils.utils import check_dcm_dose
 from core.utils.filemanip import split_filename
-from builtins import FileNotFoundError
-# from pycurt.database.local import LocalDatabase
-# from pycurt.database.utils import check_cache
+from core.database.local import LocalDatabase
+from core.database.utils import check_cache
 
 
-POSSIBLE_SEQUENCES = ['t1', 'ct1', 't1km', 't2', 'flair', 'adc', 'swi', 'rtct',
-                      'rtdose', 'rtplan', 'rtstruct']
 POSSIBLE_REFERENCES = ['T1c', 'T1KM', 'T1']
 
 
@@ -30,10 +26,12 @@ class BaseDatabase():
         self.input_needed = []
         self.local_sink = local_sink
         self.local_source = local_source
-#         if local_source or local_sink:
-#             self.local = LocalDatabase(
-#                 project_id=local_project_id, 
-#                 local_basedir=local_basedir)
+        self.input_specs = {}
+        self.output_specs = {}
+        if local_source or local_sink:
+            self.local = LocalDatabase(
+                project_id=local_project_id, 
+                local_basedir=local_basedir)
     
     def database(self):
         
@@ -79,6 +77,15 @@ class BaseDatabase():
                        if 'MR-RT' not in x and '_RT' not in x 
                        and os.path.isdir(os.path.join(base_dir, sub_id, x))]
         if ot_sessions:
+            extentions = [split_filename(x)[2] for x in
+                          os.listdir(os.path.join(base_dir, sub_id, ot_sessions[0]))]
+            if len(set(extentions)) > 1:
+                raise Exception('{} different file extentions were found. In order '
+                                'to use  this tool only one common extention '
+                                'can be used.'.format(len(set(extentions))))
+            else:
+                self.extention = extentions[0]
+
             for session in ot_sessions:
                 dict_sequences['OT'][session] = {}
                 ref = [x for x in os.listdir(os.path.join(base_dir, sub_id, session))
@@ -152,11 +159,12 @@ class BaseDatabase():
                     ot_dose = []
                     pass
                 if ot_dose:
-                    dcms = ['RTDOSE/'+x for y in ot_dose for x in glob.glob(os.path.join(
+                    dcms = [x for y in ot_dose for x in glob.glob(os.path.join(
                             base_dir, sub_id, session, 'RTDOSE', y, '*.dcm'))]
                     right_dcm = check_dcm_dose(dcms)
                     if right_dcm:
-                        dict_sequences['RT'][session]['ot_dose'] = ot_dose
+                        dict_sequences['RT'][session]['ot_dose'] = [
+                            'RTDOSE/'+x for x in ot_dose]
                 elif not ot_dose and self.extention:
                     ot_dose = [x for x in os.listdir(os.path.join(
                         base_dir, sub_id, session)) if '1-RBE' not in x
@@ -204,7 +212,8 @@ class BaseDatabase():
 
         for key in dict_sequences['MR-RT']:
             if dict_sequences['MR-RT'][key]['ref'] is not None:
-                field_name = '{}_ref'.format(key)
+                ref = dict_sequences['MR-RT'][key]['ref']
+                field_name = '{0}_{1}'.format(key, ref.strip(self.extention))
                 outfields.append(field_name)
                 field_template[field_name] = field_template_string.format(
                     key, dict_sequences['MR-RT'][key]['ref'])
@@ -218,14 +227,15 @@ class BaseDatabase():
                     template_args[field_name] = [['sub_id']]
         for key in dict_sequences['OT']:
             if dict_sequences['OT'][key]['ref'] is not None:
-                field_name = '{}_ref'.format(key)
+                ref = dict_sequences['OT'][key]['ref']
+                field_name = '{0}_{1}'.format(key, ref.strip(self.extention))
                 outfields.append(field_name)
                 field_template[field_name] = field_template_string.format(
                     key, dict_sequences['OT'][key]['ref'])
                 template_args[field_name] = [['sub_id']]
             if dict_sequences['OT'][key]['other'] is not None:
                 for el in dict_sequences['OT'][key]['other']:
-                    field_name = '{0}_{1}'.format(key, el)
+                    field_name = '{0}_{1}'.format(key, el.strip(self.extention))
                     outfields.append(field_name)
                     field_template[field_name] = field_template_string.format(
                         key, el)
@@ -256,12 +266,11 @@ class BaseDatabase():
                     key, dict_sequences['RT'][key]['rtstruct'])
                 template_args[field_name] = [['sub_id']]
             if dict_sequences['RT'][key]['ot_dose'] is not None:
-                for el in dict_sequences['RT'][key]['ot_dose']:
-                    field_name = '{0}_{1}'.format(key, el)
-                    outfields.append(field_name)
-                    field_template[field_name] = field_template_rt_string.format(
-                        key, el)
-                    template_args[field_name] = [['sub_id']]
+                field_name = '{}_ot_dose'.format(key)
+                outfields.append(field_name)
+                field_template[field_name] = field_template_rt_string.format(
+                    key, dict_sequences['RT'][key]['ot_dose'][0])
+                template_args[field_name] = [['sub_id']]
     
         return field_template, template_args, outfields
 
@@ -281,49 +290,6 @@ class BaseDatabase():
         datasource.inputs.sub_id = self.sub_id
         
         return datasource
-
-    def datasink(self, workflow, workflow_datasink):
-
-        datasource = self.data_source
-        sequences1 = [x for x in datasource.inputs.field_template.keys()
-                      if x!='t1_0' and x!='reference' and x!='rt' and x!='rt_dose'
-                      and x!='doses' and x!='rts_dcm' and x!='rtstruct'
-                      and x!='physical' and x!='rbe' and x!='rtct' and x!='rtct_nifti']
-        rt = [x for x in datasource.inputs.field_template.keys()
-              if x=='rt']
-    
-        split_ds_nodes = []
-        for i in range(len(sequences1)):
-            sessions_wit_seq = [
-                x for y in self.sessions for x in glob.glob(os.path.join(
-                    self.base_dir, self.sub_id, y, sequences1[i].upper()+'.nii.gz'))]
-            split_ds = nipype.Node(interface=Split(), name='split_ds{}'.format(i))
-            split_ds.inputs.splits = [1]*len(sessions_wit_seq)
-            split_ds_nodes.append(split_ds)
-
-            if len(sessions_wit_seq) > 1:
-                workflow.connect(datasource, sequences1[i], split_ds,
-                                 'inlist')
-                for j, sess in enumerate(sessions_wit_seq):
-                    sess_name = sess.split('/')[-2]
-                    workflow.connect(split_ds, 'out{}'.format(j+1),
-                                     workflow_datasink, 'results.subid.{0}.@{1}'
-                                     .format(sess_name, sequences1[i]))
-            elif len(sessions_wit_seq) == 1:
-                workflow.connect(datasource, sequences1[i], workflow_datasink,
-                                 'results.subid.{0}.@{1}'
-                                 .format(sessions_wit_seq[0].split('/')[-2],
-                                         sequences1[i]))
-        if self.reference:
-            workflow.connect(datasource, 'reference', workflow_datasink,
-                             'results.subid.REF.@ref_ct')
-        if self.t10:
-            workflow.connect(datasource, 't1_0', workflow_datasink,
-                             'results.subid.T10.@ref_t1')
-        if rt:
-            workflow.connect(datasource, 'rt', workflow_datasink,
-                             'results.subid.@rt')
-        return workflow
     
     def local_datasource(self):
         
@@ -345,3 +311,25 @@ class BaseDatabase():
             self.local.put(sessions, sub_folder)
         else:
             print('Nothing to copy for subject {}'.format(self.sub_id))
+    
+    def _create_input_spec(self):
+        
+        dct = {}
+
+    def check_inputspecs(self):
+
+        input_specs = self.input_specs
+        output_specs = self.output_specs
+        
+        outputs_keys = [x for x in output_specs.keys() if x != 'format']
+        input_keys = [x for x in input_specs.keys() if x != 'format']
+        
+        input_format = input_specs['format']
+        if input_format == 'NIFTI_GZ':
+            if not self.extention:
+                current_format = 'DICOM'
+            elif self.extention != '.nii.gz':
+                raise Exception('NIFTI_GZ format is need in order to run the '
+                                'workflow, but {} format was found. Workflow '
+                                'cannot be run.')
+                
