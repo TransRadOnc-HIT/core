@@ -1,3 +1,4 @@
+"Abstract class used to create any database"
 import os
 import glob
 import nipype
@@ -5,9 +6,6 @@ from core.utils.utils import check_dcm_dose
 from core.utils.filemanip import split_filename
 from core.database.local import LocalDatabase
 from core.database.utils import check_cache
-
-
-POSSIBLE_REFERENCES = ['T1c', 'T1KM', 'T1']
 
 
 class BaseDatabase():
@@ -19,6 +17,7 @@ class BaseDatabase():
         self.sub_id = sub_id
         self.base_dir = input_dir
         self.process_rt = process_rt
+        self.work_dir = work_dir
         self.nipype_cache = os.path.join(work_dir, 'nipype_cache', sub_id)
         self.result_dir = os.path.join(work_dir, 'workflows_output')
         self.workflow_name = self.__class__.__name__
@@ -49,8 +48,6 @@ class BaseDatabase():
         if mr_rt_session:
             mrs = mr_rt_session[0]
             dict_sequences['MR-RT'][mrs] = {}
-            ref = [x for x in os.listdir(os.path.join(base_dir, sub_id, mrs))
-                   if split_filename(x)[1] in POSSIBLE_REFERENCES]
             extentions = [split_filename(x)[2] for x in
                           os.listdir(os.path.join(base_dir, sub_id, mrs))]
             if len(set(extentions)) > 1:
@@ -59,19 +56,13 @@ class BaseDatabase():
                                 'can be used.'.format(len(set(extentions))))
             else:
                 self.extention = extentions[0]
-            ref = [x for y in POSSIBLE_REFERENCES for x in ref
-                   if split_filename(x)[1] == y]
-            if ref:
-                dict_sequences['MR-RT'][mrs]['ref'] = ref[0]
-                ot = [x for x in os.listdir(os.path.join(base_dir, sub_id, mrs))
-                      if x != ref[0]]
-            else:
-                dict_sequences['MR-RT'][mrs]['ref'] = None
-                ot = [x for x in os.listdir(os.path.join(base_dir, sub_id, mrs))]
+            ot = list(set([split_filename(x)[1].split('_')[0]
+                           for x in os.listdir(os.path.join(
+                               base_dir, sub_id, mrs))]))
             if ot:
-                dict_sequences['MR-RT'][mrs]['other'] = ot
+                dict_sequences['MR-RT'][mrs]['scans'] = ot
             else:
-                dict_sequences['MR-RT'][mrs]['other'] = None
+                dict_sequences['MR-RT'][mrs]['scans'] = None
         
         ot_sessions = [x for x in os.listdir(os.path.join(base_dir, sub_id))
                        if 'MR-RT' not in x and '_RT' not in x 
@@ -88,25 +79,16 @@ class BaseDatabase():
 
             for session in ot_sessions:
                 dict_sequences['OT'][session] = {}
-                ref = [x for x in os.listdir(os.path.join(base_dir, sub_id, session))
-                       if split_filename(x)[1] in POSSIBLE_REFERENCES]
-                ref = [x for y in POSSIBLE_REFERENCES for x in ref
-                       if split_filename(x)[1] == y]
-                if ref:
-                    dict_sequences['OT'][session]['ref'] = ref[0]
-                    ot = [x for x in os.listdir(os.path.join(base_dir, sub_id, session))
-                          if x != ref[0]]
-                else:
-                    dict_sequences['OT'][session]['ref'] = None
-                    ot = [x for x in os.listdir(os.path.join(base_dir, sub_id, session))]
+                ot = list(set([split_filename(x)[1].split('_')[0]
+                      for x in os.listdir(os.path.join(base_dir, sub_id, session))]))
                 if ot:
-                    dict_sequences['OT'][session]['other'] = ot
+                    dict_sequences['OT'][session]['scans'] = ot
                 else:
-                    dict_sequences['OT'][session]['other'] = None
+                    dict_sequences['OT'][session]['scans'] = None
 
-        rt_sessions = [x for x in os.listdir(os.path.join(base_dir, sub_id))
-                      if '_RT' in x and os.path.isdir(
-                          os.path.join(base_dir, sub_id, x))]
+        rt_sessions = sorted([x for x in os.listdir(os.path.join(base_dir, sub_id))
+                              if '_RT' in x and os.path.isdir(
+                                  os.path.join(base_dir, sub_id, x))])
         if rt_sessions:
             for session in rt_sessions:
                 dict_sequences['RT'][session] = {}
@@ -168,7 +150,7 @@ class BaseDatabase():
                 elif not ot_dose and self.extention:
                     ot_dose = [x for x in os.listdir(os.path.join(
                         base_dir, sub_id, session)) if '1-RBE' not in x
-                        and '1-PHY' not in x]
+                        and '1-PHY' not in x and 'DOSE' in x]
                     if ot_dose:
                         dict_sequences['RT'][session]['ot_dose'] = ot_dose
                 if os.path.isdir(os.path.join(base_dir, sub_id, session, 'RTSTRUCT')):
@@ -176,29 +158,31 @@ class BaseDatabase():
                         base_dir, sub_id, session, 'RTSTRUCT')) if '1-' in x]
                     if rtstruct:
                         dict_sequences['RT'][session]['rtstruct'] = 'RTSTRUCT/1-*'
+                else:
+                    if os.path.isdir(os.path.join(
+                            base_dir, sub_id, session, 'RTSTRUCT_used')):
+                        dict_sequences['RT'][session]['rtstruct'] = 'RTSTRUCT_used'
                 if os.path.isdir(os.path.join(base_dir, sub_id, session, 'RTCT')):
                     rtct = [x for x in os.listdir(os.path.join(
                         base_dir, sub_id, session, 'RTCT')) if '1-' in x]
                     if rtct:
                         dict_sequences['RT'][session]['rtct'] = 'RTCT/1-*'
-                    elif not rtct and self.extention:
-                        rtct = [x for x in os.listdir(os.path.join(
-                            base_dir, sub_id, session)) if 'RTCT.nii.gz' in x]
-                        if rtct:
-                            dict_sequences['RT'][session]['rtct'] = rtct[0]
+                elif self.extention:
+                    rtct = [x for x in os.listdir(os.path.join(
+                        base_dir, sub_id, session)) if 'RTCT.nii.gz' in x]
+                    if rtct:
+                        dict_sequences['RT'][session]['rtct'] = rtct[0]
     
 
         self.dict_sequences = dict_sequences
 
-        field_template, template_args, outfields = self.define_datasource_inputs()
+    def define_datasource_inputs(self, dict_sequences=None):
 
-        self.field_template = field_template
-        self.template_args = template_args
-        self.outfields= outfields
+        if dict_sequences is None:
+            dict_sequences = self.dict_sequences
+        else:
+            self.dict_sequences = dict_sequences
 
-    def define_datasource_inputs(self):
-
-        dict_sequences = self.dict_sequences
         outfields = []
         field_template = dict()
         template_args = dict()
@@ -211,34 +195,20 @@ class BaseDatabase():
         field_template_rt_string = '%s/{0}/{1}'
 
         for key in dict_sequences['MR-RT']:
-            if dict_sequences['MR-RT'][key]['ref'] is not None:
-                ref = dict_sequences['MR-RT'][key]['ref']
-                field_name = '{0}_{1}'.format(key, ref.strip(self.extention))
-                outfields.append(field_name)
-                field_template[field_name] = field_template_string.format(
-                    key, dict_sequences['MR-RT'][key]['ref'])
-                template_args[field_name] = [['sub_id']]
-            if dict_sequences['MR-RT'][key]['other'] is not None:
-                for el in dict_sequences['MR-RT'][key]['other']:
+            if dict_sequences['MR-RT'][key]['scans'] is not None:
+                for el in dict_sequences['MR-RT'][key]['scans']:
                     field_name = '{0}_{1}'.format(key, el)
                     outfields.append(field_name)
                     field_template[field_name] = field_template_string.format(
-                        key, el)
+                        key, el+self.extention)
                     template_args[field_name] = [['sub_id']]
         for key in dict_sequences['OT']:
-            if dict_sequences['OT'][key]['ref'] is not None:
-                ref = dict_sequences['OT'][key]['ref']
-                field_name = '{0}_{1}'.format(key, ref.strip(self.extention))
-                outfields.append(field_name)
-                field_template[field_name] = field_template_string.format(
-                    key, dict_sequences['OT'][key]['ref'])
-                template_args[field_name] = [['sub_id']]
-            if dict_sequences['OT'][key]['other'] is not None:
-                for el in dict_sequences['OT'][key]['other']:
+            if dict_sequences['OT'][key]['scans'] is not None:
+                for el in dict_sequences['OT'][key]['scans']:
                     field_name = '{0}_{1}'.format(key, el.strip(self.extention))
                     outfields.append(field_name)
                     field_template[field_name] = field_template_string.format(
-                        key, el)
+                        key, el+self.extention)
                     template_args[field_name] = [['sub_id']]
         for key in dict_sequences['RT']:
             if dict_sequences['RT'][key]['phy_dose'] is not None:
@@ -311,25 +281,3 @@ class BaseDatabase():
             self.local.put(sessions, sub_folder)
         else:
             print('Nothing to copy for subject {}'.format(self.sub_id))
-    
-    def _create_input_spec(self):
-        
-        dct = {}
-
-    def check_inputspecs(self):
-
-        input_specs = self.input_specs
-        output_specs = self.output_specs
-        
-        outputs_keys = [x for x in output_specs.keys() if x != 'format']
-        input_keys = [x for x in input_specs.keys() if x != 'format']
-        
-        input_format = input_specs['format']
-        if input_format == 'NIFTI_GZ':
-            if not self.extention:
-                current_format = 'DICOM'
-            elif self.extention != '.nii.gz':
-                raise Exception('NIFTI_GZ format is need in order to run the '
-                                'workflow, but {} format was found. Workflow '
-                                'cannot be run.')
-                
