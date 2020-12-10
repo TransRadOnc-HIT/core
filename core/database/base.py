@@ -5,29 +5,36 @@ import nipype
 from core.utils.utils import check_dcm_dose
 from core.utils.filemanip import split_filename
 from core.database.local import LocalDatabase
-from core.database.utils import check_cache
 
 
 class BaseDatabase():
 
     def __init__(self, sub_id, input_dir, work_dir, process_rt=False,
-                 local_source=False, local_sink=False, local_project_id=None,
-                 local_basedir=''):
+                 local_sink=True, local_project_id=None,
+                 local_basedir='', normilize_mr_rt=False,
+                 normilize_rtct=False, **kwargs):
 
         self.sub_id = sub_id
         self.base_dir = input_dir
         self.process_rt = process_rt
         self.work_dir = work_dir
+        self.normilize_mr_rt = normilize_mr_rt
+        self.normilize_rtct = normilize_rtct
         self.nipype_cache = os.path.join(work_dir, 'nipype_cache', sub_id)
         self.result_dir = os.path.join(work_dir, 'workflows_output')
         self.workflow_name = self.__class__.__name__
         self.outdir = os.path.join(self.result_dir, self.workflow_name)
         self.input_needed = []
         self.local_sink = local_sink
-        self.local_source = local_source
         self.input_specs = {}
         self.output_specs = {}
-        if local_source or local_sink:
+        if kwargs:
+            self.__dict__.update(kwargs)
+        if local_project_id is None:
+            local_project_id = 'Radiants_database'
+        if not local_basedir:
+            local_basedir = work_dir
+        if local_sink:
             self.local = LocalDatabase(
                 project_id=local_project_id, 
                 local_basedir=local_basedir)
@@ -45,17 +52,11 @@ class BaseDatabase():
         mr_rt_session = [x for x in os.listdir(os.path.join(base_dir, sub_id))
                          if 'MR-RT' in x and os.path.isdir(
                              os.path.join(base_dir, sub_id, x))]
+        self.extention = self.workflow_inputspecs()['format']
         if mr_rt_session:
             mrs = mr_rt_session[0]
             dict_sequences['MR-RT'][mrs] = {}
-            extentions = [split_filename(x)[2] for x in
-                          os.listdir(os.path.join(base_dir, sub_id, mrs))]
-            if len(set(extentions)) > 1:
-                raise Exception('{} different file extentions were found. In order '
-                                'to use  this tool only one common extention '
-                                'can be used.'.format(len(set(extentions))))
-            else:
-                self.extention = extentions[0]
+
             ot = list(set([split_filename(x)[1].split('_')[0]
                            for x in os.listdir(os.path.join(
                                base_dir, sub_id, mrs))]))
@@ -68,15 +69,6 @@ class BaseDatabase():
                        if 'MR-RT' not in x and '_RT' not in x 
                        and os.path.isdir(os.path.join(base_dir, sub_id, x))]
         if ot_sessions:
-            extentions = [split_filename(x)[2] for x in
-                          os.listdir(os.path.join(base_dir, sub_id, ot_sessions[0]))]
-            if len(set(extentions)) > 1:
-                raise Exception('{} different file extentions were found. In order '
-                                'to use  this tool only one common extention '
-                                'can be used.'.format(len(set(extentions))))
-            else:
-                self.extention = extentions[0]
-
             for session in ot_sessions:
                 dict_sequences['OT'][session] = {}
                 ot = list(set([split_filename(x)[1].split('_')[0]
@@ -205,7 +197,7 @@ class BaseDatabase():
         for key in dict_sequences['OT']:
             if dict_sequences['OT'][key]['scans'] is not None:
                 for el in dict_sequences['OT'][key]['scans']:
-                    field_name = '{0}_{1}'.format(key, el.strip(self.extention))
+                    field_name = '{0}_{1}'.format(key, el)#.strip(self.extention))
                     outfields.append(field_name)
                     field_template[field_name] = field_template_string.format(
                         key, el+self.extention)
@@ -260,16 +252,6 @@ class BaseDatabase():
         datasource.inputs.sub_id = self.sub_id
         
         return datasource
-    
-    def local_datasource(self):
-        
-        skip_sessions = check_cache(self.sessions, self.input_needed,
-                                    self.sub_id, self.base_dir)
-        
-        if [x for x in self.sessions if x not in skip_sessions]:
-            self.local.get(self.base_dir, subjects=[self.sub_id],
-                             needed_scans=self.input_needed,
-                             skip_sessions=skip_sessions)
 
     def local_datasink(self):
 
