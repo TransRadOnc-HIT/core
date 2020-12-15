@@ -15,7 +15,7 @@ class BaseDatabase():
                  normilize_rtct=False, **kwargs):
 
         self.sub_id = sub_id
-        self.base_dir = input_dir
+        self.input_dir = input_dir
         self.process_rt = process_rt
         self.work_dir = work_dir
         self.normilize_mr_rt = normilize_mr_rt
@@ -41,7 +41,7 @@ class BaseDatabase():
     
     def database(self):
         
-        base_dir = self.base_dir
+        base_dir = self.input_dir
         sub_id = self.sub_id
 
         dict_sequences = {}
@@ -186,21 +186,30 @@ class BaseDatabase():
 
         field_template_rt_string = '%s/{0}/{1}'
 
+        data_formats = self.workflow_inputspecs()['data_formats']
         for key in dict_sequences['MR-RT']:
             if dict_sequences['MR-RT'][key]['scans'] is not None:
                 for el in dict_sequences['MR-RT'][key]['scans']:
                     field_name = '{0}_{1}'.format(key, el)
+                    contrast = el.split('_')[0]
+                    for k in data_formats:
+                        if '{0}{1}'.format(contrast, k) == el:
+                            extention = data_formats[k]
                     outfields.append(field_name)
                     field_template[field_name] = field_template_string.format(
-                        key, el+self.extention)
+                        key, el+extention)
                     template_args[field_name] = [['sub_id']]
         for key in dict_sequences['OT']:
             if dict_sequences['OT'][key]['scans'] is not None:
                 for el in dict_sequences['OT'][key]['scans']:
                     field_name = '{0}_{1}'.format(key, el)#.strip(self.extention))
+                    contrast = el.split('_')[0]
+                    for k in data_formats:
+                        if '{0}{1}'.format(contrast, k) == el:
+                            extention = data_formats[k]
                     outfields.append(field_name)
                     field_template[field_name] = field_template_string.format(
-                        key, el+self.extention)
+                        key, el+extention)
                     template_args[field_name] = [['sub_id']]
         for key in dict_sequences['RT']:
             if dict_sequences['RT'][key]['phy_dose'] is not None:
@@ -243,7 +252,7 @@ class BaseDatabase():
                 infields=['sub_id'],
                 outfields=self.outfields),
                 name='datasource')
-        datasource.inputs.base_directory = self.base_dir
+        datasource.inputs.base_directory = self.input_dir
         datasource.inputs.template = '*'
         datasource.inputs.sort_filelist = True
         datasource.inputs.raise_on_empty = False

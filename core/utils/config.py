@@ -28,7 +28,8 @@ def cmdline_input_config():
                         help=('Whether or not to normalize each MR image in post RT folder '
                               'to the CT used for RT planning in the RT directory (if present). '
                               'This is only considered if "registration" workflow is '
-                              'selected. Default is False.'))
+                              'selected. Default is False. '
+                              'N.B. if MR-RT is not present, this step cannot be performed!'))
     PARSER.add_argument('--gtv_seg_model_dir', '-gtv_md', type=str, default=None,
                         help=('Directory with the model parameters to segment the GTV. '
                               'It is assumed that the network has been trained with nnUNet, '
