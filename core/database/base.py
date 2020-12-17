@@ -72,7 +72,8 @@ class BaseDatabase():
             for session in ot_sessions:
                 dict_sequences['OT'][session] = {}
                 ot = list(set([split_filename(x)[1].split('_')[0]
-                      for x in os.listdir(os.path.join(base_dir, sub_id, session))]))
+                      for x in os.listdir(os.path.join(base_dir, sub_id, session))
+                      if x != 'CT']))
                 if ot:
                     dict_sequences['OT'][session]['scans'] = ot
                 else:
