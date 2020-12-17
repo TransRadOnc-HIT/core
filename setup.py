@@ -11,7 +11,7 @@ setup(name='core',
       zip_safe=False,
       install_requires=[
       'nipype',
-      'pydicom==1.2.2'],
+      'pydicom'],
       dependency_links=['git+https://github.com/TransRadOnc-HIT/nipype.git@c453eac5d7efdd4e19a9bcc8a7f3d800026cc125#egg=nipype-9876543210'],
       packages=find_packages(exclude=['*.tests', '*.tests.*', 'tests.*', 'tests']),
       classifiers=[
