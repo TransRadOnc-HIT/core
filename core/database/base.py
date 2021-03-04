@@ -28,16 +28,18 @@ class BaseDatabase():
         self.local_sink = local_sink
         self.input_specs = {}
         self.output_specs = {}
-        if kwargs:
-            self.__dict__.update(kwargs)
         if local_project_id is None:
             local_project_id = 'Radiants_database'
         if not local_basedir:
             local_basedir = work_dir
+        self.local_project_id = local_project_id
+        self.local_basedir = local_basedir
+        if kwargs:
+            self.__dict__.update(kwargs)
         if local_sink:
             self.local = LocalDatabase(
-                project_id=local_project_id, 
-                local_basedir=local_basedir)
+                project_id=self.local_project_id, 
+                local_basedir=self.local_basedir)
     
     def database(self):
         
