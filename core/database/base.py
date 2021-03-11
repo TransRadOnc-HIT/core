@@ -54,7 +54,10 @@ class BaseDatabase():
         mr_rt_session = [x for x in os.listdir(os.path.join(base_dir, sub_id))
                          if 'MR-RT' in x and os.path.isdir(
                              os.path.join(base_dir, sub_id, x))]
-        self.extention = self.workflow_inputspecs()['format']
+        try:
+            self.extention = self.workflow_inputspecs()['format']
+        except:
+            self.extention = '.nii.gz'
         if mr_rt_session:
             mrs = mr_rt_session[0]
             dict_sequences['MR-RT'][mrs] = {}
@@ -189,15 +192,26 @@ class BaseDatabase():
 
         field_template_rt_string = '%s/{0}/{1}'
 
-        data_formats = self.workflow_inputspecs()['data_formats']
+        try:
+            data_formats = self.workflow_inputspecs()['data_formats']
+        except:
+            data_formats = {'':'.nii.gz'}
+
         for key in dict_sequences['MR-RT']:
             if dict_sequences['MR-RT'][key]['scans'] is not None:
                 for el in dict_sequences['MR-RT'][key]['scans']:
                     field_name = '{0}_{1}'.format(key, el)
                     contrast = el.split('_')[0]
+                    extention = None
                     for k in data_formats:
                         if '{0}{1}'.format(contrast, k) == el:
                             extention = data_formats[k]
+                    if extention == None:
+                        for k in data_formats:
+                            if k == el:
+                                extention = data_formats[k]
+                    if extention is None:
+                        extention = '.nii.gz'
                     outfields.append(field_name)
                     field_template[field_name] = field_template_string.format(
                         key, el+extention)
@@ -207,9 +221,16 @@ class BaseDatabase():
                 for el in dict_sequences['OT'][key]['scans']:
                     field_name = '{0}_{1}'.format(key, el)#.strip(self.extention))
                     contrast = el.split('_')[0]
+                    extention = None
                     for k in data_formats:
                         if '{0}{1}'.format(contrast, k) == el:
                             extention = data_formats[k]
+                    if extention == None:
+                        for k in data_formats:
+                            if k == el:
+                                extention = data_formats[k]
+                    if extention is None:
+                        extention = '.nii.gz'
                     outfields.append(field_name)
                     field_template[field_name] = field_template_string.format(
                         key, el+extention)

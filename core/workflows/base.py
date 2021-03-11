@@ -45,54 +45,65 @@ class BaseWorkflow(BaseDatabase):
         dict_sequences_updated['RT'] = dict_sequences['RT']
         dict_sequences_updated['OT'] = {}
         dict_sequences_updated['MR-RT'] = {}
-        workflow_input_specs = self.workflow_inputspecs()
+        try:
+            additional_inputs = self.additional_inputs
+        except AttributeError:
+            additional_inputs = None
+        workflow_input_specs = self.workflow_inputspecs(additional_inputs)
         process = False
         run_dependency_config = {}
         scans_not_found = {}
         scans_not_found['RT'] = dict_sequences['RT']
         n_dependencies = len(workflow_input_specs['dependencies'])-1
+        additional_scans = workflow_input_specs['additional_inputs']
         for i, dependency in enumerate(workflow_input_specs['dependencies']):
             run_dependency_config[n_dependencies-i] = {}
             run_dependency_config[n_dependencies-i]['workflow'] = dependency
             sessions = {**dict_sequences['MR-RT'], **dict_sequences['OT']}
 #             dependency_outspecs = dependency.workflow_outputspecs()
             dependency_outputs = workflow_input_specs['dependencies'][dependency]
-            dependency_inspecs = dependency.workflow_inputspecs()
-            dependency_inputs = dependency_inspecs['suffix']
+            
+            workflow_inputs_needed = workflow_input_specs['dependencies'][dependency]
+            dependency_outputs = dependency.workflow_outputspecs()['outputs']
+            
             for session_type in ['MR-RT', 'OT']:
                 scans_not_found[session_type] = {}
                 sessions = dict_sequences[session_type]
-                for outname, outformat, possible_sequences, multiplicity in dependency_outputs:
+                for needed_input in workflow_inputs_needed:
+                    mandatory = workflow_inputs_needed[needed_input]['mandatory']
+                    possible_sequences = dependency_outputs[needed_input]['possible_sequences']
+                    input_format = dependency_outputs[needed_input]['format']
+                    multiplicity = dependency_outputs[needed_input]['multiplicity']
+                    composite_input = dependency_outputs[needed_input]['composite']
                     for key in sessions:
-                        scans = [x.split('_')[0] for x in sessions[key]['scans']]
+                        original_scans = sessions[key]['scans']
                         if possible_sequences:
                             if multiplicity == 'all':
-                                scans = [x for x in scans if x in possible_sequences]
+                                scans = [x for x in original_scans if x in possible_sequences]
                             elif (multiplicity == 'mrrt' and self.dict_sequences['MR-RT']
                                     and session_type != 'MR-RT'):
-                                scans = [self.find_reference(scans, possible_sequences)]
+                                scans = [self.find_reference(original_scans, possible_sequences)]
                                 if not scans_not_found['MR-RT']:
                                     scans_not_found['MR-RT'] = dc(
                                         self.dict_sequences['MR-RT'])
                             elif (multiplicity == 'rt' and session_type == 'MR-RT'
                                     and self.dict_sequences['RT']):
-                                scans = [self.find_reference(scans, possible_sequences)]
+                                scans = [self.find_reference(original_scans, possible_sequences)]
                             else:
                                 scans = []
-                        scans = [x+outname for x in scans]
-                        if key not in dict_sequences_updated[session_type].keys():
-                            dict_sequences_updated[session_type][key] = {}
-                            dict_sequences_updated[session_type][key]['scans'] = scans
+                            scans = [x+needed_input for x in scans]
                         else:
-                            dict_sequences_updated[session_type][key]['scans'] = (
-                                dict_sequences_updated[session_type][key]['scans'] + scans)
-                        not_found = []
-                        for s in dependency_inputs:
-                            not_found = not_found+ [
-                                x.split('_')[0]+s for x in scans
-                                if not os.path.isfile(os.path.join(
-                                    self.input_dir, self.sub_id, key,
-                                    x+outformat))]
+                            scans = [needed_input]
+                        not_found = [x for x in scans if not os.path.isfile(os.path.join(
+                            self.input_dir, self.sub_id, key, x+input_format))]
+                        if not_found and composite_input is not None:
+                            mandatory_scan_type = [x.split('_')[0] for x in composite_input]
+                            intersection = [x for x in original_scans if x in mandatory_scan_type]
+                            if len(intersection) == len(composite_input):
+                                not_found = composite_input
+                            else:
+                                not_found = []
+                                scans.remove(needed_input)
                         if not_found:
                             process = True
                             if key not in scans_not_found[session_type].keys():
@@ -102,6 +113,63 @@ class BaseWorkflow(BaseDatabase):
                                 old_scans = scans_not_found[session_type][key]['scans']
                                 new_scans = list(set().union(old_scans, not_found))
                                 scans_not_found[session_type][key]['scans'] = new_scans
+                        if additional_scans is not None:
+                            add_scans_found = [x for x in additional_scans if os.path.isfile(os.path.join(
+                                self.input_dir, self.sub_id, key, x+'.nii.gz'))]
+                            scans = scans + add_scans_found
+                        if key not in dict_sequences_updated[session_type].keys():
+                            dict_sequences_updated[session_type][key] = {}
+                            dict_sequences_updated[session_type][key]['scans'] = scans
+                        else:
+                            old_scans = dict_sequences_updated[session_type][key]['scans']
+                            new_scans = list(set(old_scans + scans))
+                            dict_sequences_updated[session_type][key]['scans'] = new_scans
+
+#             dependency_inspecs = dependency.workflow_inputspecs()
+#             dependency_inputs = dependency_inspecs['input_suffix']
+#             for session_type in ['MR-RT', 'OT']:
+#                 scans_not_found[session_type] = {}
+#                 sessions = dict_sequences[session_type]
+#                 for outname, outformat, possible_sequences, multiplicity in dependency_outputs:
+#                     for key in sessions:
+#                         scans = [x.split('_')[0] for x in sessions[key]['scans']]
+#                         if possible_sequences:
+#                             if multiplicity == 'all':
+#                                 scans = [x for x in scans if x in possible_sequences]
+#                             elif (multiplicity == 'mrrt' and self.dict_sequences['MR-RT']
+#                                     and session_type != 'MR-RT'):
+#                                 scans = [self.find_reference(scans, possible_sequences)]
+#                                 if not scans_not_found['MR-RT']:
+#                                     scans_not_found['MR-RT'] = dc(
+#                                         self.dict_sequences['MR-RT'])
+#                             elif (multiplicity == 'rt' and session_type == 'MR-RT'
+#                                     and self.dict_sequences['RT']):
+#                                 scans = [self.find_reference(scans, possible_sequences)]
+#                             else:
+#                                 scans = []
+#                         scans = [x+outname for x in scans]
+#                         if key not in dict_sequences_updated[session_type].keys():
+#                             dict_sequences_updated[session_type][key] = {}
+#                             dict_sequences_updated[session_type][key]['scans'] = scans
+#                         else:
+#                             dict_sequences_updated[session_type][key]['scans'] = (
+#                                 dict_sequences_updated[session_type][key]['scans'] + scans)
+#                         not_found = []
+#                         for s in dependency_inputs:
+#                             not_found = not_found+ [
+#                                 x.split('_')[0]+s for x in scans
+#                                 if not os.path.isfile(os.path.join(
+#                                     self.input_dir, self.sub_id, key,
+#                                     x+outformat))]
+#                         if not_found:
+#                             process = True
+#                             if key not in scans_not_found[session_type].keys():
+#                                 scans_not_found[session_type][key] = {}
+#                                 scans_not_found[session_type][key]['scans'] = not_found
+#                             else:
+#                                 old_scans = scans_not_found[session_type][key]['scans']
+#                                 new_scans = list(set().union(old_scans, not_found))
+#                                 scans_not_found[session_type][key]['scans'] = new_scans
             if process:
                 run_dependency_config[n_dependencies-i]['scans'] = dc(scans_not_found)
                 dict_sequences = dc(scans_not_found)
