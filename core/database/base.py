@@ -159,7 +159,7 @@ class BaseDatabase():
                 else:
                     if os.path.isdir(os.path.join(
                             base_dir, sub_id, session, 'RTSTRUCT_used')):
-                        dict_sequences['RT'][session]['rtstruct'] = 'RTSTRUCT_used'
+                        dict_sequences['RT'][session]['rtstruct'] = 'RTSTRUCT_used/*.dcm'
                 if os.path.isdir(os.path.join(base_dir, sub_id, session, 'RTCT')):
                     rtct = [x for x in os.listdir(os.path.join(
                         base_dir, sub_id, session, 'RTCT')) if '1-' in x]
