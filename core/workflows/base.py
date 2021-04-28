@@ -79,8 +79,10 @@ class BaseWorkflow(BaseDatabase):
                         else:
                             scans = []
                         scans = [x+input_key for x in scans]
-                    else:
+                    elif input_key:
                         scans = [input_key]
+                    else:
+                        scans = original_scans
                     not_found = [x for x in scans if not os.path.isfile(os.path.join(
                             self.input_dir, self.sub_id, session, x+input_format))]
                     if not_found and composite_input is not None:
